@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
@@ -8,7 +8,23 @@ const Login = () => {
     password: ''
   });
   const [formErrors, setFormErrors] = useState({});
+  const [localError, setLocalError] = useState(null);
   const { login, isAuthenticated, isLoading, error } = useAuth();
+  
+  // Effect to set local error when auth error changes
+  useEffect(() => {
+    if (error) {
+      setLocalError(error);
+      
+      // Auto-dismiss error after 4 seconds
+      const timer = setTimeout(() => {
+        setLocalError(null);
+      }, 4000);
+      
+      // Clean up timer on unmount or when error changes
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // If already authenticated, redirect to browse page
   if (isAuthenticated) {
@@ -70,9 +86,18 @@ const Login = () => {
         </div>
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
-              {error}
+          {localError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded relative">
+              <button 
+                onClick={() => setLocalError(null)} 
+                className="absolute top-2 right-2 text-red-600"
+                aria-label="Dismiss"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+              {localError}
             </div>
           )}
           

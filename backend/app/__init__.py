@@ -39,13 +39,17 @@ def create_app(config_name='development'):
     from app.config.config import config_by_name
     app.config.from_object(config_by_name[config_name])
     
-    # Setup CORS
+    # Setup CORS with appropriate settings
+    cors_origins = app.config.get('CORS_ORIGINS', 'http://localhost:3000')
+    
     CORS(app, resources={r"/api/*": {
-        "origins": app.config.get('CORS_ORIGINS'),
+        "origins": cors_origins,
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization", "Accept"],
+        "allow_headers": ["Content-Type", "Authorization", "Accept", "X-Requested-With"],
         "expose_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True
+        "supports_credentials": True,
+        "automatic_options": True,  # Automatically handle OPTIONS requests
+        "vary_header": True
     }})
     
     # Register blueprints

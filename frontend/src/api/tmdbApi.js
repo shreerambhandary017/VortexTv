@@ -1,4 +1,5 @@
 import axios from 'axios';
+import moviePlaceholder from '../assets/images/movie-placeholder';
 
 // TMDB Configuration - Make sure this API key is valid
 const TMDB_API_KEY = '4ebafabfe8923b78541f5edb0f4cf482';
@@ -50,7 +51,7 @@ tmdbAxios.interceptors.response.use(
 
 // Helper function to get image URL
 export const getImageUrl = (path, size = 'w500') => {
-  if (!path) return 'https://via.placeholder.com/500x750?text=No+Image';
+  if (!path) return moviePlaceholder;
   if (path.startsWith('http')) return path; // Already a full URL
   return `${IMAGE_BASE_URL}/${size}${path}`;
 };
@@ -234,6 +235,43 @@ const searchTvShows = (query, page = 1) => {
     });
 };
 
+// Get search suggestions (combined movies and TV shows)
+const getSearchSuggestions = async (query) => {
+  if (!query || query.trim() === '') {
+    return [];
+  }
+  
+  try {
+    const [movieResults, tvResults] = await Promise.all([
+      searchMovies(query),
+      searchTvShows(query)
+    ]);
+    
+    // Format results
+    const formattedMovies = movieResults.slice(0, 3).map(movie => ({
+      id: movie.id,
+      title: movie.title,
+      type: 'movie',
+      year: movie.release_date ? new Date(movie.release_date).getFullYear() : null,
+      poster_path: movie.poster_path
+    }));
+    
+    const formattedTvShows = tvResults.slice(0, 3).map(show => ({
+      id: show.id,
+      title: show.name,
+      type: 'tv',
+      year: show.first_air_date ? new Date(show.first_air_date).getFullYear() : null,
+      poster_path: show.poster_path
+    }));
+    
+    // Combine and limit results
+    return [...formattedMovies, ...formattedTvShows].slice(0, 5);
+  } catch (error) {
+    console.error('Error getting search suggestions:', error);
+    return [];
+  }
+};
+
 // Discover functionality
 const discoverMovies = (params = {}) => {
   return tmdbAxios.get('/discover/movie', { params })
@@ -291,32 +329,35 @@ const testApiConnection = () => {
     });
 };
 
-// Export functions and utilities
-export default {
+const tmdbApi = {
+  getMovieDetails,
+  getTvShowDetails,
+  getTvSeasonDetails,
+  getSimilarMovies,
   testApiConnection,
   // Movies
   getPopularMovies,
   getTrendingMovies,
   getTopRatedMovies,
   getUpcomingMovies,
-  getMovieDetails,
-  getSimilarMovies,
   // TV Shows
   getPopularTvShows,
   getTrendingTvShows,
   getTopRatedTvShows,
-  getTvShowDetails,
-  getTvSeasonDetails,
   getSimilarTvShows,
   // Search
   searchMulti,
   searchMovies,
   searchTvShows,
+  getSearchSuggestions,
   // Discover
   discoverMovies,
   discoverTvShows,
+  // Genres
   getMovieGenres,
   getTvGenres,
   // Utils
   getImageUrl
-}; 
+};
+
+export default tmdbApi;

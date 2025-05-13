@@ -226,8 +226,35 @@ const checkSubscription = () => {
 };
 
 // Access code management
-const generateAccessCode = () => {
-  return api.post('/access/generate');
+const generateAccessCode = async () => {
+  console.log('API: generateAccessCode called');
+  
+  try {
+    // Make sure token is refreshed before making the request
+    setupTokenRefresh();
+    
+    // Log the authorization header to ensure it's set
+    const authHeader = api.defaults.headers.common['Authorization'];
+    console.log('API: Authorization header present:', !!authHeader);
+    
+    // Add timeout and retry logic
+    const response = await api.post('/access/generate', {}, {
+      timeout: 10000, // 10 second timeout
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache'
+      }
+    });
+    
+    console.log('API: Access code generation response:', response.data);
+    return response;
+  } catch (error) {
+    console.error('API: Error generating access code:', error);
+    console.error('API: Error response:', error.response?.data);
+    
+    // Throw the error with extra information
+    throw error;
+  }
 };
 
 const getAccessCodes = () => {
@@ -257,6 +284,12 @@ const getUsersWithRoles = () => {
 
 const updateUserRole = (userId, role) => {
   return api.put(`/admin/users/${userId}/role`, { role });
+};
+
+// Update user information (for admin panel)
+const adminUpdateUser = (userId, userData) => {
+  console.log(`Updating user ${userId} with data:`, userData);
+  return api.put(`/admin/users/${userId}`, userData);
 };
 
 // Watchlist/Favorites
@@ -356,6 +389,7 @@ export {
   getAllSubscriptions,
   getUsersWithRoles,
   updateUserRole,
+  adminUpdateUser,
   getFavorites,
   addToFavorites,
   removeFromFavorites,

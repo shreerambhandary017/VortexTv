@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { adminResetUserPassword, api as backendApi } from '../../api/backendApi';
+import { adminResetUserPassword, adminUpdateUser, api as backendApi } from '../../api/backendApi';
 
 const Users = () => {
   const { user: currentUser } = useAuth();
@@ -90,8 +90,8 @@ const Users = () => {
     e.preventDefault();
     
     try {
-      // Update user info
-      await backendApi.put(`/admin/users/${selectedUser.user_id}`, {
+      // Update user info using the imported adminUpdateUser function
+      await adminUpdateUser(selectedUser.user_id, {
         username: editFormData.username,
         email: editFormData.email,
         role: editFormData.role

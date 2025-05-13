@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import tmdbApi from '../../api/tmdbApi';
+import moviePlaceholder from '../../assets/images/movie-placeholder';
 
 const Navbar = () => {
   const { user, isAuthenticated, logout } = useAuth();
@@ -12,36 +14,10 @@ const Navbar = () => {
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const isBrowsePage = location.pathname === '/browse';
+  const showSearchBar = location.pathname === '/browse' || location.pathname === '/movies' || location.pathname === '/tvshows';
 
-  // Sample suggestions - in a real app, these would come from an API
-  const sampleSuggestions = {
-    'a': [
-      { id: 1, title: 'Avatar', type: 'movie', year: 2009 },
-      { id: 2, title: 'Avengers: Endgame', type: 'movie', year: 2019 },
-      { id: 3, title: 'Altered Carbon', type: 'tv', year: 2018 },
-    ],
-    'b': [
-      { id: 4, title: 'Black Panther', type: 'movie', year: 2018 },
-      { id: 5, title: 'Breaking Bad', type: 'tv', year: 2008 },
-      { id: 6, title: 'Blade Runner 2049', type: 'movie', year: 2017 },
-    ],
-    's': [
-      { id: 7, title: 'Stranger Things', type: 'tv', year: 2016 },
-      { id: 8, title: 'Star Wars: The Last Jedi', type: 'movie', year: 2017 },
-      { id: 9, title: 'Succession', type: 'tv', year: 2018 },
-    ],
-    't': [
-      { id: 10, title: 'The Mandalorian', type: 'tv', year: 2019 },
-      { id: 11, title: 'The Dark Knight', type: 'movie', year: 2008 },
-      { id: 12, title: 'The Queen\'s Gambit', type: 'tv', year: 2020 },
-    ],
-    'i': [
-      { id: 13, title: 'Inception', type: 'movie', year: 2010 },
-      { id: 14, title: 'Interstellar', type: 'movie', year: 2014 },
-      { id: 15, title: 'It\'s Always Sunny in Philadelphia', type: 'tv', year: 2005 },
-    ],
-  };
+  // For debouncing search requests
+  const [searchTimeout, setSearchTimeout] = useState(null);
 
   // Add scroll event listener
   useEffect(() => {
@@ -68,7 +44,7 @@ const Navbar = () => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  // Update search suggestions when query changes
+  // Update search suggestions when query changes with debouncing
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setSearchSuggestions([]);
@@ -76,17 +52,30 @@ const Navbar = () => {
       return;
     }
 
-    // Get first letter of search query
-    const firstLetter = searchQuery.trim().toLowerCase()[0];
+    // Clear previous timeout
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+
+    // Set new timeout to debounce API calls
+    const timeout = setTimeout(async () => {
+      try {
+        // Get search suggestions using our dedicated API method
+        const suggestions = await tmdbApi.getSearchSuggestions(searchQuery);
+        setSearchSuggestions(suggestions);
+        setShowSuggestions(searchFocused && suggestions.length > 0);
+      } catch (err) {
+        console.error('Error fetching search suggestions:', err);
+        setSearchSuggestions([]);
+      }
+    }, 300); // Wait 300ms after typing stops
     
-    // Get suggestions that match the query
-    const suggestions = sampleSuggestions[firstLetter] || [];
-    const filteredSuggestions = suggestions.filter(item => 
-      item.title.toLowerCase().includes(searchQuery.toLowerCase())
-    ).slice(0, 4); // Limit to 4 suggestions
+    setSearchTimeout(timeout);
     
-    setSearchSuggestions(filteredSuggestions);
-    setShowSuggestions(searchFocused && filteredSuggestions.length > 0);
+    // Clean up function
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
   }, [searchQuery, searchFocused]);
 
   const handleSearch = (e) => {
@@ -146,26 +135,42 @@ const Navbar = () => {
             
             {isAuthenticated && (
               <div className="ml-8 space-x-6 hidden md:flex">
-                <NavLink to="/browse" current={location.pathname === '/browse'}>
-                  Browse
-                </NavLink>
+                <Link to="/browse" className={`relative px-3 py-1.5 rounded-lg overflow-hidden group ${location.pathname === '/browse' ? 'text-white font-medium' : 'text-gray-300'}`}>
+                  <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Browse</span>
+                  <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${location.pathname === '/browse' ? 'opacity-20' : ''}`}></span>
+                  <span className={`absolute bottom-0 left-0 h-0.5 bg-red-500 transition-all duration-300 ${location.pathname === '/browse' ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
+                </Link>
+                <Link to="/movies" className={`relative px-3 py-1.5 rounded-lg overflow-hidden group ${location.pathname === '/movies' || location.pathname.startsWith('/movie/') ? 'text-white font-medium' : 'text-gray-300'}`}>
+                  <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Movies</span>
+                  <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${location.pathname === '/movies' || location.pathname.startsWith('/movie/') ? 'opacity-20' : ''}`}></span>
+                  <span className={`absolute bottom-0 left-0 h-0.5 bg-red-500 transition-all duration-300 ${location.pathname === '/movies' || location.pathname.startsWith('/movie/') ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
+                </Link>
+                <Link to="/tvshows" className={`relative px-3 py-1.5 rounded-lg overflow-hidden group ${location.pathname === '/tvshows' || location.pathname.startsWith('/tv/') ? 'text-white font-medium' : 'text-gray-300'}`}>
+                  <span className="relative z-10 transition-colors duration-300 group-hover:text-white">TV Shows</span>
+                  <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${location.pathname === '/tvshows' || location.pathname.startsWith('/tv/') ? 'opacity-20' : ''}`}></span>
+                  <span className={`absolute bottom-0 left-0 h-0.5 bg-red-500 transition-all duration-300 ${location.pathname === '/tvshows' || location.pathname.startsWith('/tv/') ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
+                </Link>
                 {!(user?.role === 'admin' || user?.role === 'superadmin') && (
-                  <NavLink to="/subscriptions" current={location.pathname === '/subscriptions'}>
-                    Subscriptions
-                  </NavLink>
+                  <Link to="/subscriptions" className={`relative px-3 py-1.5 rounded-lg overflow-hidden group ${location.pathname === '/subscriptions' ? 'text-white font-medium' : 'text-gray-300'}`}>
+                    <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Subscriptions</span>
+                    <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${location.pathname === '/subscriptions' ? 'opacity-20' : ''}`}></span>
+                    <span className={`absolute bottom-0 left-0 h-0.5 bg-red-500 transition-all duration-300 ${location.pathname === '/subscriptions' ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
+                  </Link>
                 )}
                 {(user?.role === 'admin' || user?.role === 'superadmin') && (
-                  <NavLink to="/admin" current={location.pathname.startsWith('/admin')}>
-                    Admin Panel
-                  </NavLink>
+                  <Link to="/admin" className={`relative px-3 py-1.5 rounded-lg overflow-hidden group ${location.pathname.startsWith('/admin') ? 'text-white font-medium' : 'text-gray-300'}`}>
+                    <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Admin Panel</span>
+                    <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${location.pathname.startsWith('/admin') ? 'opacity-20' : ''}`}></span>
+                    <span className={`absolute bottom-0 left-0 h-0.5 bg-red-500 transition-all duration-300 ${location.pathname.startsWith('/admin') ? 'w-full' : 'w-0 group-hover:w-full'}`}></span>
+                  </Link>
                 )}
               </div>
             )}
           </div>
           
           <div className="flex items-center space-x-4">
-            {/* Search bar - only visible on browse page */}
-            {isAuthenticated && isBrowsePage && (
+            {/* Search bar - visible on browse, movies and tvshows pages */}
+            {isAuthenticated && showSearchBar && (
               <div className="search-container relative hidden sm:block">
                 <form 
                   onSubmit={handleSearch} 
@@ -207,40 +212,41 @@ const Navbar = () => {
                 
                 {/* Search suggestions */}
                 {showSuggestions && (
-                  <div className="search-suggestions absolute mt-1 w-full bg-gray-800 rounded-lg shadow-lg overflow-hidden z-50 transform origin-top transition-all duration-200 animate-suggestions">
-                    <div className="p-1">
-                      {searchSuggestions.map((suggestion, index) => (
-                        <div
-                          key={suggestion.id}
-                          className="px-3 py-2 hover:bg-gray-700 rounded cursor-pointer transition-colors text-sm flex items-center"
-                          onClick={() => handleSuggestionClick(suggestion)}
-                          style={{ animationDelay: `${index * 50}ms` }}
-                        >
-                          <div className="flex-shrink-0 mr-2">
-                            {suggestion.type === 'movie' ? (
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm3 2h6v4H7V5zm8 8v2h1v-2h-1zm-2-8h1V5h-1v2zm-2 8h1v-2h-1v2zM9 5h1V3H9v2zm6 5a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                              </svg>
-                            ) : (
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-purple-400" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                              </svg>
-                            )}
-                          </div>
-                          <div className="flex-1 truncate">
-                            <span className="font-medium">{suggestion.title}</span>
-                            <span className="text-gray-400 text-xs ml-1">({suggestion.year})</span>
-                          </div>
-                        </div>
-                      ))}
-                      <div className="border-t border-gray-700 my-1"></div>
-                      <button
-                        className="w-full px-3 py-1.5 text-center text-xs text-red-400 hover:text-red-300 font-medium"
-                        onClick={handleSearch}
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-2 z-50 max-h-80 overflow-auto">
+                    {searchSuggestions.map((suggestion) => (
+                      <div
+                        key={`${suggestion.type}-${suggestion.id}`}
+                        className="px-4 py-2 hover:bg-gray-700 cursor-pointer flex items-center"
+                        onClick={() => handleSuggestionClick(suggestion)}
                       >
-                        View all results
-                      </button>
-                    </div>
+                        <div className="w-10 h-14 flex-shrink-0 mr-3 bg-gray-900 rounded overflow-hidden">
+                          {suggestion.poster_path ? (
+                            <img 
+                              src={`https://image.tmdb.org/t/p/w92${suggestion.poster_path}`}
+                              alt={suggestion.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.target.onerror = null;
+                                e.target.src = moviePlaceholder;
+                              }}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-700 text-xs text-gray-400">No Image</div>
+                          )}
+                        </div>
+                        <div className="flex-1 truncate">
+                          <span className="font-medium">{suggestion.title}</span>
+                          <span className="text-gray-400 text-xs ml-1">({suggestion.year})</span>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="border-t border-gray-700 my-1"></div>
+                    <button
+                      className="w-full px-3 py-1.5 text-center text-xs text-red-400 hover:text-red-300 font-medium"
+                      onClick={handleSearch}
+                    >
+                      View all results
+                    </button>
                   </div>
                 )}
               </div>
@@ -311,30 +317,52 @@ const Navbar = () => {
             <div className="flex flex-col space-y-3 border-b border-gray-700 pb-3">
               <Link 
                 to="/browse" 
-                className={`px-3 py-2 rounded-lg transition-colors ${location.pathname === '/browse' ? 'bg-red-600/20 text-white font-medium' : 'text-gray-300 hover:bg-gray-800'}`}
+                className={`relative px-3 py-2 rounded-lg overflow-hidden group ${location.pathname === '/browse' ? 'text-white font-medium' : 'text-gray-300'}`}
               >
-                Browse
+                <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Browse</span>
+                <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300 ${location.pathname === '/browse' ? 'opacity-10' : ''}`}></span>
+                <span className={`absolute left-0 top-0 bottom-0 w-1 bg-red-500 transition-all duration-300 ${location.pathname === '/browse' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}></span>
+              </Link>
+              <Link 
+                to="/movies" 
+                className={`relative px-3 py-2 rounded-lg overflow-hidden group ${location.pathname === '/movies' || location.pathname.startsWith('/movie/') ? 'text-white font-medium' : 'text-gray-300'}`}
+              >
+                <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Movies</span>
+                <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300 ${location.pathname === '/movies' || location.pathname.startsWith('/movie/') ? 'opacity-10' : ''}`}></span>
+                <span className={`absolute left-0 top-0 bottom-0 w-1 bg-red-500 transition-all duration-300 ${location.pathname === '/movies' || location.pathname.startsWith('/movie/') ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}></span>
+              </Link>
+              <Link 
+                to="/tvshows" 
+                className={`relative px-3 py-2 rounded-lg overflow-hidden group ${location.pathname === '/tvshows' || location.pathname.startsWith('/tv/') ? 'text-white font-medium' : 'text-gray-300'}`}
+              >
+                <span className="relative z-10 transition-colors duration-300 group-hover:text-white">TV Shows</span>
+                <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300 ${location.pathname === '/tvshows' || location.pathname.startsWith('/tv/') ? 'opacity-10' : ''}`}></span>
+                <span className={`absolute left-0 top-0 bottom-0 w-1 bg-red-500 transition-all duration-300 ${location.pathname === '/tvshows' || location.pathname.startsWith('/tv/') ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}></span>
               </Link>
               {!(user?.role === 'admin' || user?.role === 'superadmin') && (
                 <Link 
                   to="/subscriptions" 
-                  className={`px-3 py-2 rounded-lg transition-colors ${location.pathname === '/subscriptions' ? 'bg-red-600/20 text-white font-medium' : 'text-gray-300 hover:bg-gray-800'}`}
+                  className={`relative px-3 py-2 rounded-lg overflow-hidden group ${location.pathname === '/subscriptions' ? 'text-white font-medium' : 'text-gray-300'}`}
                 >
-                  Subscriptions
+                  <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Subscriptions</span>
+                  <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300 ${location.pathname === '/subscriptions' ? 'opacity-10' : ''}`}></span>
+                  <span className={`absolute left-0 top-0 bottom-0 w-1 bg-red-500 transition-all duration-300 ${location.pathname === '/subscriptions' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}></span>
                 </Link>
               )}
               {(user?.role === 'admin' || user?.role === 'superadmin') && (
                 <Link 
                   to="/admin" 
-                  className={`px-3 py-2 rounded-lg transition-colors ${location.pathname.startsWith('/admin') ? 'bg-red-600/20 text-white font-medium' : 'text-gray-300 hover:bg-gray-800'}`}
+                  className={`relative px-3 py-2 rounded-lg overflow-hidden group ${location.pathname.startsWith('/admin') ? 'text-white font-medium' : 'text-gray-300'}`}
                 >
-                  Admin Panel
+                  <span className="relative z-10 transition-colors duration-300 group-hover:text-white">Admin Panel</span>
+                  <span className={`absolute inset-0 bg-gradient-to-r from-red-600 to-red-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300 ${location.pathname.startsWith('/admin') ? 'opacity-10' : ''}`}></span>
+                  <span className={`absolute left-0 top-0 bottom-0 w-1 bg-red-500 transition-all duration-300 ${location.pathname.startsWith('/admin') ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}></span>
                 </Link>
               )}
             </div>
           )}
           
-          {isAuthenticated && isBrowsePage && (
+          {isAuthenticated && showSearchBar && (
             <div className="py-3 border-b border-gray-700">
               <form onSubmit={handleSearch} className="relative">
                 <input

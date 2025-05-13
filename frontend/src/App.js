@@ -9,6 +9,8 @@ import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Browse from './pages/Browse';
+import Movies from './pages/Movies';
+import TvShows from './pages/TvShows';
 import MovieDetails from './pages/MovieDetails';
 import TvShowDetails from './pages/TvShowDetails';
 import Profile from './pages/Profile';
@@ -32,10 +34,13 @@ export const SidebarContext = createContext();
 
 // SidebarProvider component
 export const SidebarProvider = ({ children }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  // Start with collapsed sidebar by default
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const toggleSidebar = () => {
     setIsCollapsed(!isCollapsed);
+    // Save preference to localStorage
+    localStorage.setItem('admin_sidebar_collapsed', !isCollapsed ? 'false' : 'true');
   };
 
   return (
@@ -120,7 +125,7 @@ const AdminRoute = ({ children }) => {
     <div className="flex flex-col min-h-screen">
       <div className="flex flex-grow">
         <AdminSidebar />
-        <div className={`flex-1 transition-all duration-300 pt-14 ${isCollapsed ? 'ml-16' : 'ml-64'}`}>
+        <div className={`flex-1 transition-all duration-300 ${isCollapsed ? 'ml-16' : 'ml-64'}`}>
           {children}
         </div>
       </div>
@@ -152,7 +157,7 @@ const SuperAdminRoute = ({ children }) => {
     <div className="flex flex-col min-h-screen">
       <div className="flex flex-grow">
         <AdminSidebar />
-        <div className={`flex-1 transition-all duration-300 pt-14 ${isCollapsed ? 'ml-16' : 'ml-64'}`}>
+        <div className={`flex-1 transition-all duration-300 ${isCollapsed ? 'ml-16' : 'ml-64'}`}>
           {children}
         </div>
       </div>
@@ -183,6 +188,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Browse />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/movies"
+              element={
+                <ProtectedRoute>
+                  <Movies />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/tvshows"
+              element={
+                <ProtectedRoute>
+                  <TvShows />
                 </ProtectedRoute>
               }
             />

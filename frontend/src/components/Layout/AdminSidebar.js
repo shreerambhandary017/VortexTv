@@ -39,7 +39,7 @@ const AdminSidebar = () => {
   
   return (
     <div 
-      className={`bg-gray-900 text-white fixed left-0 top-[3.5rem] h-[calc(100vh-3.5rem)] overflow-y-auto z-10 transition-all duration-300 ease-in-out ${
+      className={`bg-gray-900 text-white fixed left-0 top-14 h-[calc(100vh-3.5rem)] overflow-y-auto z-10 transition-all duration-300 ease-in-out ${
         isCollapsed ? 'w-16' : 'w-64'
       }`}
     >

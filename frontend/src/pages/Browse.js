@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import tmdbApi, { getImageUrl } from '../api/tmdbApi';
+import moviePlaceholder from '../assets/images/movie-placeholder';
 
 const Browse = () => {
   const location = useLocation();
@@ -250,7 +251,7 @@ const Browse = () => {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 md:gap-6">
               {searchResults.map((item) => (
-                <Link to={`/${item.mediaType}/${item.id}`} key={`${item.mediaType}-${item.id}`} className="group">
+                <Link to={`/${item.mediaType === 'movie' ? 'movie' : 'tv'}/${item.id}`} key={`${item.mediaType}-${item.id}`} className="group">
                   <div className="relative overflow-hidden rounded-lg mb-2 aspect-[2/3] bg-gray-800">
                     <img
                       src={getImageUrl(item.poster_path, 'w500')}
@@ -263,7 +264,7 @@ const Browse = () => {
                           e.target.src = getImageUrl(item.poster_path, 'w342');
                           return;
                         }
-                        e.target.src = 'https://via.placeholder.com/300x450?text=' + encodeURIComponent(item.title || 'No Image');
+                        e.target.src = moviePlaceholder;
                       }}
                     />
                     {item.vote_average > 0 && (
@@ -350,7 +351,7 @@ const Browse = () => {
                             e.target.src = getImageUrl(movie.poster_path, 'w342');
                             return;
                           }
-                          e.target.src = 'https://via.placeholder.com/300x450?text=' + encodeURIComponent(movie.title || 'Movie');
+                          e.target.src = moviePlaceholder;
                         }}
                       />
                       <div className="absolute top-0 right-0 bg-black bg-opacity-75 text-yellow-400 p-1 text-sm rounded-bl">
@@ -387,7 +388,7 @@ const Browse = () => {
                             e.target.src = getImageUrl(show.poster_path, 'w342');
                             return;
                           }
-                          e.target.src = 'https://via.placeholder.com/300x450?text=' + encodeURIComponent(show.name || 'TV Show');
+                          e.target.src = moviePlaceholder;
                         }}
                       />
                       <div className="absolute top-0 right-0 bg-black bg-opacity-75 text-yellow-400 p-1 text-sm rounded-bl">
@@ -424,7 +425,7 @@ const Browse = () => {
                             e.target.src = getImageUrl(movie.poster_path, 'w342');
                             return;
                           }
-                          e.target.src = 'https://via.placeholder.com/300x450?text=' + encodeURIComponent(movie.title || 'Coming Soon');
+                          e.target.src = moviePlaceholder;
                         }}
                       />
                       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-2">

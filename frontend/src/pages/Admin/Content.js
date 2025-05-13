@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import api from '../../api/backendApi';
 import { getImageUrl } from '../../api/tmdbApi';
+import moviePlaceholder from '../../assets/images/movie-placeholder';
 
 const Content = () => {
   const [activeTab, setActiveTab] = useState('movies');
@@ -53,7 +54,7 @@ const Content = () => {
           release_date: '2023-05-15',
           genres: ['Action', 'Drama'].join(', '),
           vote_average: (Math.random() * 2 + 7).toFixed(1),
-          poster_path: `https://via.placeholder.com/150x225?text=Movie+${idx+1}`,
+          poster_path: moviePlaceholder,
           overview: `This is a sample overview for movie ${idx + 1}. It would contain a brief description of the plot.`
         }));
         setContent(dummyMovies);
@@ -65,7 +66,7 @@ const Content = () => {
           first_air_date: '2023-05-15',
           genres: ['Drama', 'Sci-Fi'].join(', '),
           vote_average: (Math.random() * 2 + 7).toFixed(1),
-          poster_path: `https://via.placeholder.com/150x225?text=TV+${idx+1}`,
+          poster_path: moviePlaceholder,
           overview: `This is a sample overview for TV show ${idx + 1}. It would contain a brief description of the premise.`
         }));
         setContent(dummyShows);
@@ -407,7 +408,7 @@ const Content = () => {
                             alt={activeTab === 'movies' ? item.title : item.name}
                             onError={(e) => {
                               e.target.onerror = null;
-                              e.target.src = `https://via.placeholder.com/92x138?text=${encodeURIComponent(activeTab === 'movies' ? item.title : item.name)}`;
+                              e.target.src = moviePlaceholder;
                             }}
                           />
                         </div>

@@ -9,30 +9,17 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class AccessCodeGenerator:
-    """
-    Utility for generating unique access codes
-    """
-    
+class AccessCodeGenerator: 
     @staticmethod
     def generate_code(length=16):
-        """
-        Generate a random alphanumeric access code
-        
-        Args:
-            length (int): Length of the code to generate
-            
-        Returns:
-            str: Unique access code
-        """
-        # Use Python's secrets module for secure random generation
+        #secrets module for random generation
         chars = string.ascii_uppercase + string.ascii_lowercase + string.digits
         code = ''.join(secrets.choice(chars) for _ in range(length))
         
-        # Add timestamp to ensure uniqueness
+        #timestamp to ensure uniqueness
         timestamp = str(int(time.time()))
         
-        # Combine the random code with the timestamp
+        # random code with the timestamp
         combined_code = code + timestamp
         
         # Shuffle the combined code
@@ -40,21 +27,10 @@ class AccessCodeGenerator:
         random.shuffle(combined_list)
         final_code = ''.join(combined_list)
         
-        # Ensure code is of the proper length (and not longer)
         return final_code[:length]
     
     @staticmethod
     def generate_unique_code(length=16, max_attempts=3):
-        """
-        Generate a unique access code that doesn't exist in the database
-        
-        Args:
-            length (int): Length of the code to generate
-            max_attempts (int): Maximum number of attempts to generate a unique code
-            
-        Returns:
-            str: Unique access code
-        """
         for _ in range(max_attempts):
             code = AccessCodeGenerator.generate_code(length)
             
@@ -72,17 +48,6 @@ class AccessCodeGenerator:
     
     @staticmethod
     def generate_formatted_code(length=16, separator='-', segment_length=4):
-        """
-        Generate a formatted access code with separators for better readability
-        
-        Args:
-            length (int): Total length of the code (excluding separators)
-            separator (str): Character to use as separator
-            segment_length (int): Length of each segment
-            
-        Returns:
-            str: Formatted unique access code
-        """
         code = AccessCodeGenerator.generate_unique_code(length)
         
         segments = []
@@ -93,15 +58,6 @@ class AccessCodeGenerator:
         
     @staticmethod
     def validate_code(code):
-        """
-        Check if a code is valid (exists and is active)
-        
-        Args:
-            code (str): The access code to validate
-            
-        Returns:
-            tuple: (is_valid, error_message)
-        """
         # Remove any separators that might be in the code
         clean_code = code.replace('-', '').replace(' ', '')
         

@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import tmdbApi, { getImageUrl } from '../api/tmdbApi';
 import { useAuth } from '../hooks/useAuth';
+import VideoPlayer from '../components/VideoPlayer';
+import moviePlaceholder from '../assets/images/movie-placeholder';
 
 const TvShowDetails = () => {
   const { id } = useParams();
@@ -15,11 +17,16 @@ const TvShowDetails = () => {
   const [episodes, setEpisodes] = useState([]);
   const [similarShows, setSimilarShows] = useState([]);
   const [hasAccess, setHasAccess] = useState(false);
+  const [showTrailer, setShowTrailer] = useState(false);
+  const [trailerKey, setTrailerKey] = useState(null);
+  const [selectedEpisodeTrailer, setSelectedEpisodeTrailer] = useState(null);
 
   useEffect(() => {
-    // Scroll to top when component mounts
-    window.scrollTo(0, 0);
+    // Scroll to top only when component first mounts
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [id]); // Only re-run if TV show id changes
     
+  useEffect(() => {
     // Check if user has subscription access
     const checkAccess = async () => {
       if (!isAuthenticated) {
@@ -71,6 +78,28 @@ const TvShowDetails = () => {
         
         setTvShow(tvData);
         
+        // Find trailer video key if available
+        if (tvData.videos && tvData.videos.results && tvData.videos.results.length > 0) {
+          // Find official trailer first
+          const trailer = tvData.videos.results.find(video => 
+            video.type === 'Trailer' && video.site === 'YouTube' && video.official === true
+          ) || 
+          // Then any trailer
+          tvData.videos.results.find(video => 
+            video.type === 'Trailer' && video.site === 'YouTube'
+          ) || 
+          // Then any teaser
+          tvData.videos.results.find(video => 
+            video.type === 'Teaser' && video.site === 'YouTube'
+          ) ||
+          // Or first video
+          tvData.videos.results.find(video => video.site === 'YouTube');
+          
+          if (trailer) {
+            setTrailerKey(trailer.key);
+          }
+        }
+        
         // Set available seasons
         if (tvData.number_of_seasons) {
           setSeasons(Array.from({ length: tvData.number_of_seasons }, (_, i) => i + 1));
@@ -103,8 +132,8 @@ const TvShowDetails = () => {
         setTvShow({
           id: parseInt(id),
           name: 'Sample TV Show',
-          poster_path: `https://via.placeholder.com/500x750?text=TV+Show+${id}`,
-          backdrop_path: `https://via.placeholder.com/1280x720?text=TV+Show+${id}+Backdrop`,
+          poster_path: moviePlaceholder,
+          backdrop_path: moviePlaceholder,
           first_air_date: '2020-01-15',
           last_air_date: '2023-05-10',
           number_of_seasons: 3,
@@ -138,7 +167,7 @@ const TvShowDetails = () => {
         setSimilarShows(Array(6).fill().map((_, idx) => ({
           id: 2000 + idx,
           name: `Similar Show ${idx + 1}`,
-          poster_path: `https://via.placeholder.com/300x450?text=Similar+${idx+1}`,
+          poster_path: moviePlaceholder,
           vote_average: (Math.random() * 2 + 7).toFixed(1)
         })));
       } finally {
@@ -208,19 +237,30 @@ const TvShowDetails = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
+      {showTrailer && (
+        <VideoPlayer
+          videoKey={selectedEpisodeTrailer ? null : trailerKey}
+          title={selectedEpisodeTrailer ? selectedEpisodeTrailer.title : tvShow?.name}
+          onClose={() => {
+            setShowTrailer(false);
+            setSelectedEpisodeTrailer(null);
+          }}
+        />
+      )}
+
       {/* TV Show Backdrop */}
       <div className="relative">
-        <div 
+        <div
           className="aspect-[21/9] bg-cover bg-center"
-          style={{ 
+          style={{
             backgroundImage: `url(${getImageWithFallback(tvShow.backdrop_path)})`,
-            backgroundPosition: 'center 20%'
+            backgroundPosition: 'center 20%',
           }}
         >
           <div className="absolute inset-0 bg-gradient-to-t from-gray-900 to-transparent opacity-90" />
         </div>
       </div>
-      
+
       {/* TV Show Content */}
       <div className="container mx-auto px-4 py-12">
         {error && (
@@ -228,60 +268,66 @@ const TvShowDetails = () => {
             {error}
           </div>
         )}
-        
+
         <div className="flex flex-col md:flex-row gap-8">
           {/* TV Show Poster */}
           <div className="md:w-1/3 lg:w-1/4 mb-8 md:mb-0">
-            <img 
-              src={getImageWithFallback(tvShow.poster_path, 'w500')} 
-              alt={tvShow.name} 
+            <img
+              src={getImageWithFallback(tvShow.poster_path, 'w500')}
+              alt={tvShow.name}
               className="w-full rounded-lg shadow-lg"
               onError={(e) => {
                 e.target.onerror = null;
-                e.target.src = `https://via.placeholder.com/500x750?text=${encodeURIComponent(tvShow.name)}`;
+                e.target.src = moviePlaceholder;
               }}
             />
           </div>
-          
+
           {/* TV Show Info */}
           <div className="md:w-2/3 lg:w-3/4">
             <h1 className="text-3xl md:text-4xl font-bold mb-2">{tvShow.name}</h1>
-            
+
             <div className="flex items-center mb-4 text-sm text-gray-400">
               <span className="mr-4">{new Date(tvShow.first_air_date).getFullYear()}</span>
               <span className="mr-4">{tvShow.number_of_seasons} Seasons</span>
               <span className="mr-4">{tvShow.number_of_episodes} Episodes</span>
               <span className="flex items-center text-yellow-500">
-                <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                <svg
+                  className="w-4 h-4 mr-1"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
                   <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path>
                 </svg>
                 {tvShow.vote_average?.toFixed(1)} ({tvShow.vote_count?.toLocaleString()} votes)
               </span>
             </div>
-            
+
             <div className="mb-6">
               {tvShow.genres && tvShow.genres.map((genre) => (
-                <span 
-                  key={genre.id} 
+                <span
+                  key={genre.id}
                   className="inline-block bg-gray-800 rounded-full px-3 py-1 text-sm font-semibold text-gray-300 mr-2 mb-2"
                 >
                   {genre.name}
                 </span>
               ))}
             </div>
-            
+
             <div className="mb-6">
               <h2 className="text-xl font-bold mb-2">Overview</h2>
               <p className="text-gray-300">{tvShow.overview}</p>
             </div>
-            
+
             {tvShow.created_by && tvShow.created_by.length > 0 && (
               <div className="mb-6">
                 <h2 className="text-xl font-bold mb-2">Created By</h2>
-                <p className="text-gray-300">{tvShow.created_by.map(creator => creator.name).join(', ')}</p>
+                <p className="text-gray-300">
+                  {tvShow.created_by.map((creator) => creator.name).join(', ')}
+                </p>
               </div>
             )}
-            
+
             {cast.length > 0 && (
               <div className="mb-6">
                 <h2 className="text-xl font-bold mb-2">Cast</h2>
@@ -290,27 +336,45 @@ const TvShowDetails = () => {
                     <div key={index} className="text-gray-300">
                       <span className="font-medium">{actor.name}</span>
                       {actor.character && (
-                        <span className="block text-sm text-gray-400">as {actor.character}</span>
+                        <span className="block text-sm text-gray-400">
+                          as {actor.character}
+                        </span>
                       )}
                     </div>
                   ))}
                 </div>
               </div>
             )}
-            
-            <div className="mt-8">
-              <Link 
-                to="/browse" 
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md inline-flex items-center transition-colors"
+
+            <div className="mt-8 flex flex-wrap gap-4">
+              <button
+                onClick={() => navigate(-1)}
+                className="text-white bg-gray-800 hover:bg-gray-900 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 focus:outline-none flex items-center"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
                 Back to Browse
-              </Link>
+              </button>
+              
+              {trailerKey && (
+                <button
+                  onClick={() => {
+                    setSelectedEpisodeTrailer(null);
+                    setShowTrailer(true);
+                  }}
+                  className="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 focus:outline-none flex items-center"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                  Watch Trailer
+                </button>
+              )}
             </div>
           </div>
         </div>
+
         
         {/* Episodes Section - Only show if episodes are available */}
         {seasons.length > 0 && (
@@ -380,7 +444,6 @@ const TvShowDetails = () => {
                           </div>
                         </div>
                       )}
-                      
                       {/* Episode details - take full width if no image */}
                       <div className={`p-5 md:p-6 ${episode.still_path ? 'md:w-2/3 lg:w-3/4' : 'w-full'}`}>
                         <div className="flex items-center mb-2">
@@ -417,7 +480,17 @@ const TvShowDetails = () => {
                         </p>
                         
                         <div className="flex items-center justify-between mt-2">
-                          <button className="text-red-500 hover:text-red-400 font-medium flex items-center transition-colors">
+                          <button 
+                            className="text-red-500 hover:text-red-400 font-medium flex items-center transition-colors"
+                            onClick={() => {
+                              setSelectedEpisodeTrailer({
+                                episodeNumber: episode.episode_number,
+                                seasonNumber: selectedSeason,
+                                title: `${tvShow.name} - S${selectedSeason} E${episode.episode_number} - ${episode.name}`
+                              });
+                              setShowTrailer(true);
+                            }}
+                          >
                             <svg className="w-5 h-5 mr-1" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd"></path>
                             </svg>

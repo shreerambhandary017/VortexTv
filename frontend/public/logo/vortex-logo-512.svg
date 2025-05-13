@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="256" cy="256" r="248" fill="#111827" stroke="#DC2626" stroke-width="16"/>
+  
+  <!-- Play Button Triangle -->
+  <path d="M347 256L202 346V166L347 256Z" fill="#DC2626"/>
+  
+  <!-- Letter V for Vortex -->
+  <path d="M181 128L231 218L281 128" stroke="white" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Shine Effect -->
+  <circle cx="390" cy="122" r="18" fill="white" fill-opacity="0.6"/>
+</svg>

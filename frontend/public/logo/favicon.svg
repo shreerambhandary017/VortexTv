@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="32" cy="32" r="30" fill="#111827" stroke="#DC2626" stroke-width="3"/>
+  
+  <!-- Play Button Triangle -->
+  <path d="M42 32L26 42V22L42 32Z" fill="#DC2626"/>
+  
+  <!-- Shine Effect -->
+  <circle cx="48" cy="16" r="3" fill="white" fill-opacity="0.6"/>
+</svg>

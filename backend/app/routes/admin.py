@@ -165,6 +165,141 @@ def get_users_with_roles():
         logger.error(f"Error getting users with roles: {e}")
         return jsonify({'message': 'Error getting users'}), 500
 
+@admin_bp.route('/users/<int:user_id>', methods=['OPTIONS'])
+def update_user_options(user_id):
+    """Handle preflight OPTIONS requests for the update_user route"""
+    response = jsonify({'message': 'Options method allowed'})
+    # Add CORS headers
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Methods', 'PUT, OPTIONS')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    response.headers.add('Access-Control-Max-Age', '86400')  # 24 hours
+    return response, 200
+
+@admin_bp.route('/users/<int:user_id>', methods=['PUT'])
+@token_required
+@superadmin_required
+def update_user(user_id):
+    """Update a user's information (superadmin only)"""
+        
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'message': 'No data provided'}), 400
+    
+    try:
+        # Initialize update fields and parameters
+        update_fields = []
+        params = []
+        
+        # Update username if provided
+        if 'username' in data:
+            # Check if username already exists
+            existing_user = Database.get_single_result(
+                "SELECT user_id FROM users WHERE username = %s AND user_id != %s",
+                (data['username'], user_id)
+            )
+            
+            if existing_user:
+                return jsonify({'message': 'Username already exists'}), 409
+                
+            update_fields.append("username = %s")
+            params.append(data['username'])
+        
+        # Update email if provided
+        if 'email' in data:
+            # Check if email already exists
+            existing_user = Database.get_single_result(
+                "SELECT user_id FROM users WHERE email = %s AND user_id != %s",
+                (data['email'], user_id)
+            )
+            
+            if existing_user:
+                return jsonify({'message': 'Email already exists'}), 409
+                
+            update_fields.append("email = %s")
+            params.append(data['email'])
+        
+        # Update role if provided
+        if 'role' in data:
+            # Get role ID
+            role = Database.get_single_result(
+                "SELECT role_id FROM roles WHERE role_name = %s",
+                (data['role'],)
+            )
+            
+            if not role:
+                return jsonify({'message': 'Invalid role'}), 400
+                
+            # Check if user exists
+            user = Database.get_single_result(
+                "SELECT username FROM users WHERE user_id = %s",
+                (user_id,)
+            )
+            
+            if not user:
+                return jsonify({'message': 'User not found'}), 404
+            
+            # Check if user is the only superadmin when changing from superadmin
+            current_role = Database.get_single_result(
+                """SELECT r.role_name FROM users u 
+                JOIN roles r ON u.role_id = r.role_id
+                WHERE u.user_id = %s""", 
+                (user_id,)
+            )
+            
+            if current_role and current_role['role_name'] == 'superadmin' and data['role'] != 'superadmin':
+                # Count superadmins
+                superadmin_count = Database.get_single_result(
+                    """SELECT COUNT(*) as count FROM users u
+                    JOIN roles r ON u.role_id = r.role_id
+                    WHERE r.role_name = 'superadmin'"""
+                )
+                
+                if superadmin_count and superadmin_count['count'] <= 1:
+                    return jsonify({'message': 'Cannot demote the only superadmin'}), 403
+            
+            update_fields.append("role_id = %s")
+            params.append(role['role_id'])
+        
+        if not update_fields:
+            return jsonify({'message': 'No fields to update'}), 400
+        
+        # Add user_id to params
+        params.append(user_id)
+        
+        # Execute update query
+        Database.execute_query(
+            f"""
+            UPDATE users
+            SET {', '.join(update_fields)}
+            WHERE user_id = %s
+            """,
+            tuple(params),
+            fetch=False
+        )
+        
+        # Log audit
+        Database.execute_query(
+            """
+            INSERT INTO audit_log (user_id, action, details, ip_address)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (
+                request.user['user_id'],
+                'update_user',
+                f"User updated: ID {user_id}",
+                request.remote_addr
+            ),
+            fetch=False
+        )
+        
+        return jsonify({'message': 'User updated successfully'}), 200
+    
+    except Exception as e:
+        logger.error(f"Error updating user: {e}")
+        return jsonify({'message': f'Error updating user: {str(e)}'}), 500
+
 @admin_bp.route('/users/<int:user_id>/role', methods=['PUT'])
 @token_required
 @superadmin_required
@@ -332,7 +467,7 @@ def get_all_subscriptions():
         
         if status == 'active':
             query += " AND s.is_active = TRUE AND s.end_date > NOW()"
-        elif status == 'expired':
+        elif status == 'expired' or status == 'inactive':
             query += " AND (s.is_active = FALSE OR s.end_date <= NOW())"
         
         if search:
@@ -359,7 +494,7 @@ def get_all_subscriptions():
         
         if status == 'active':
             count_query += " AND s.is_active = TRUE AND s.end_date > NOW()"
-        elif status == 'expired':
+        elif status == 'expired' or status == 'inactive':
             count_query += " AND (s.is_active = FALSE OR s.end_date <= NOW())"
         
         if search:

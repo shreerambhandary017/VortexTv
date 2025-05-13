@@ -96,7 +96,7 @@ const Dashboard = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-full p-8">
+      <div className="flex justify-center items-center h-full min-h-[200px] p-4">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
           <div className="text-xl text-gray-700">Loading dashboard data...</div>
@@ -147,55 +147,38 @@ const Dashboard = () => {
   const chartData = generateChartData();
 
   return (
-    <div className="bg-gray-50 min-h-screen pb-12 mt-14">
-      {/* Dashboard Header */}
-      <div className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Overview of your platform's performance and metrics
-              </p>
-            </div>
-            
-            <div className="mt-4 md:mt-0 flex space-x-3">
-              <button 
-                onClick={() => setTimeFrame('week')}
-                className={`px-3 py-2 text-sm font-medium rounded-md ${
-                  timeFrame === 'week' 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Week
-              </button>
-              <button 
-                onClick={() => setTimeFrame('month')}
-                className={`px-3 py-2 text-sm font-medium rounded-md ${
-                  timeFrame === 'month' 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Month
-              </button>
-              <button 
-                onClick={() => setTimeFrame('year')}
-                className={`px-3 py-2 text-sm font-medium rounded-md ${
-                  timeFrame === 'year' 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Year
-              </button>
-            </div>
+    <div className="bg-gray-50 min-h-screen">
+      <div className="max-w-7xl mx-auto p-4 md:p-6">
+        {/* Dashboard Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800 mb-1">Admin Dashboard</h1>
+            <p className="text-sm text-gray-500">
+              Overview of your platform's performance and metrics
+            </p>
+          </div>
+          <div className="mt-4 md:mt-0 flex space-x-2">
+            <button 
+              onClick={() => setTimeFrame('week')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md ${timeFrame === 'week' ? 'bg-red-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'}`}
+            >
+              This Week
+            </button>
+            <button 
+              onClick={() => setTimeFrame('month')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md ${timeFrame === 'month' ? 'bg-red-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'}`}
+            >
+              This Month
+            </button>
+            <button 
+              onClick={() => setTimeFrame('year')}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md ${timeFrame === 'year' ? 'bg-red-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'}`}
+            >
+              This Year
+            </button>
           </div>
         </div>
-      </div>
-      
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
         {error && (
           <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md shadow-sm">
             <div className="flex items-start">

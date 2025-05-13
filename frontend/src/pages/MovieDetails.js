@@ -3,6 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import tmdbApi from '../api/tmdbApi';
 import { useAuth } from '../hooks/useAuth';
+import VideoPlayer from '../components/VideoPlayer';
+import moviePlaceholder from '../assets/images/movie-placeholder';
 
 const MovieDetails = () => {
   const { id } = useParams();
@@ -13,11 +15,15 @@ const MovieDetails = () => {
   const [error, setError] = useState(null);
   const [similarMovies, setSimilarMovies] = useState([]);
   const [hasAccess, setHasAccess] = useState(false);
+  const [showTrailer, setShowTrailer] = useState(false);
+  const [trailerKey, setTrailerKey] = useState(null);
 
   useEffect(() => {
-    // Scroll to top when component mounts
-    window.scrollTo(0, 0);
+    // Scroll to top only when component first mounts
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [id]); // Only re-run if movie id changes
     
+  useEffect(() => {
     // Check if user has subscription access
     const checkAccess = async () => {
       if (!isAuthenticated) {
@@ -69,6 +75,28 @@ const MovieDetails = () => {
         
         setMovie(movieData);
         
+        // Find trailer video key if available
+        if (movieData.videos && movieData.videos.results && movieData.videos.results.length > 0) {
+          // Find official trailer first
+          const trailer = movieData.videos.results.find(video => 
+            video.type === 'Trailer' && video.site === 'YouTube' && video.official === true
+          ) || 
+          // Then any trailer
+          movieData.videos.results.find(video => 
+            video.type === 'Trailer' && video.site === 'YouTube'
+          ) || 
+          // Then any teaser
+          movieData.videos.results.find(video => 
+            video.type === 'Teaser' && video.site === 'YouTube'
+          ) ||
+          // Or first video
+          movieData.videos.results.find(video => video.site === 'YouTube');
+          
+          if (trailer) {
+            setTrailerKey(trailer.key);
+          }
+        }
+        
         // Fetch similar movies using tmdbApi
         const similarData = await tmdbApi.getSimilarMovies(id);
         setSimilarMovies(similarData?.slice(0, 6) || []);
@@ -80,8 +108,8 @@ const MovieDetails = () => {
         setMovie({
           id: parseInt(id),
           title: 'Sample Movie Title',
-          poster_path: `https://via.placeholder.com/500x750?text=Movie+${id}`,
-          backdrop_path: `https://via.placeholder.com/1280x720?text=Movie+${id}+Backdrop`,
+          poster_path: moviePlaceholder,
+          backdrop_path: moviePlaceholder,
           release_date: '2023-05-15',
           runtime: 120,
           vote_average: 8.5,
@@ -102,7 +130,7 @@ const MovieDetails = () => {
         setSimilarMovies(Array(6).fill().map((_, idx) => ({
           id: 1000 + idx,
           title: `Similar Movie ${idx + 1}`,
-          poster_path: `https://via.placeholder.com/300x450?text=Similar+${idx+1}`,
+          poster_path: moviePlaceholder,
           vote_average: (Math.random() * 2 + 7).toFixed(1)
         })));
       } finally {
@@ -153,7 +181,15 @@ const MovieDetails = () => {
   const cast = movie.credits?.cast?.slice(0, 10) || [];
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gray-900 text-white py-8">
+      {showTrailer && (
+        <VideoPlayer 
+          videoKey={trailerKey} 
+          title={movie?.title || 'Movie Trailer'} 
+          onClose={() => setShowTrailer(false)} 
+        />
+      )}
+      
       {/* Movie Backdrop */}
       <div className="relative">
         <div 
@@ -184,7 +220,7 @@ const MovieDetails = () => {
               className="w-full rounded-lg shadow-lg"
               onError={(e) => {
                 e.target.onerror = null;
-                e.target.src = `https://via.placeholder.com/500x750?text=${encodeURIComponent(movie.title)}`;
+                e.target.src = moviePlaceholder;
               }}
             />
           </div>
@@ -241,18 +277,28 @@ const MovieDetails = () => {
               </div>
             )}
             
-            <div className="mt-8">
-              <Link 
-                to="/browse" 
-                className="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-md font-medium transition-colors inline-block mr-4"
+            <div className="mt-8 flex flex-wrap gap-4">
+              <button
+                onClick={() => navigate(-1)}
+                className="text-white bg-gray-800 hover:bg-gray-900 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 focus:outline-none flex items-center"
               >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
                 Back to Browse
-              </Link>
-              <button 
-                className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-md font-medium transition-colors inline-block"
-              >
-                Watch Now
               </button>
+              
+              {trailerKey && (
+                <button
+                  onClick={() => setShowTrailer(true)}
+                  className="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-5 py-2.5 focus:outline-none flex items-center"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                  Watch Trailer
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -270,7 +316,7 @@ const MovieDetails = () => {
                       className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       onError={(e) => {
                         e.target.onerror = null;
-                        e.target.src = `https://via.placeholder.com/300x450?text=${encodeURIComponent(similarMovie.title)}`;
+                        e.target.src = moviePlaceholder;
                       }}
                     />
                     <div className="absolute top-0 right-0 bg-black bg-opacity-75 text-yellow-400 p-1 text-sm rounded-bl">

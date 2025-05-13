@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { setupTokenRefresh, getCurrentUser, getUserSubscription, updateUser, generateAccessCode, redeemAccessCode, updatePassword, cancelSubscription } from '../api/backendApi';
@@ -9,6 +9,7 @@ const Profile = () => {
   const { user, isAuthenticated, logout, checkSubscription, generateAccessCode, redeemAccessCode, getUserAccessCodes } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [subscriptionData, setSubscriptionData] = useState(null);
@@ -30,17 +31,89 @@ const Profile = () => {
   });
   const navigate = useNavigate();
 
+  // References for notification elements to scroll to
+  const errorRef = useRef(null);
+  const successRef = useRef(null);
+  const newCodeRef = useRef(null);
+  
+  // Custom error setter function to focus on error messages
+  const setErrorWithFocus = (errorMessage) => {
+    setError(errorMessage);
+    
+    // Focus on the error notification after a short delay to ensure it's rendered
+    setTimeout(() => {
+      if (errorRef.current) {
+        errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        errorRef.current.focus();
+      }
+    }, 100);
+  };
+  
+  // Track if component is mounted to prevent state updates after unmount
+  const isMounted = React.useRef(true);
+  
+  // Handle first load and auth changes
   useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/login');
-    } else if (user && (user.role === 'admin' || user.role === 'superadmin')) {
-      // Redirect admin users to the admin profile
-      navigate('/admin/profile');
-    } else if (user) {
-      setupTokenRefresh();
-      fetchProfile();
-      fetchSubscriptionData();
-    }
+    isMounted.current = true;
+    
+    // Clean up function to set isMounted to false when component unmounts
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+  
+  // Handle authentication state changes
+  useEffect(() => {
+    const initializeData = async () => {
+      console.log('Profile: Authentication state changed. isAuthenticated:', isAuthenticated, 'user:', user);
+      
+      if (!isAuthenticated) {
+        console.log('Profile: Not authenticated, redirecting to login');
+        navigate('/login');
+        return;
+      }
+      
+      if (user && (user.role === 'admin' || user.role === 'superadmin')) {
+        console.log('Profile: Admin user detected, redirecting to admin profile');
+        navigate('/admin/profile');
+        return;
+      }
+      
+      if (user) {
+        console.log('Profile: User authenticated, setting up data');
+        
+        // Setup token refresh first
+        setupTokenRefresh();
+        
+        // Try loading from local storage first for immediate display
+        const cachedSubscription = localStorage.getItem('vortextv_subscription');
+        if (cachedSubscription) {
+          try {
+            const parsedData = JSON.parse(cachedSubscription);
+            console.log('Profile: Using cached subscription data initially');
+            setSubscriptionData(parsedData);
+            setSubscriptionLoading(false);
+          } catch (e) {
+            console.error('Profile: Error parsing cached subscription data', e);
+          }
+        }
+        
+        // Then fetch fresh data
+        if (isMounted.current) {
+          await fetchProfile();
+          
+          // Wait a moment before fetching subscription data to ensure auth is fully established
+          setTimeout(async () => {
+            if (isMounted.current) {
+              console.log('Profile: Fetching subscription data after delay');
+              await fetchSubscriptionData();
+            }
+          }, 500); // Short delay to ensure auth state is fully set up
+        }
+      }
+    };
+    
+    initializeData();
   }, [isAuthenticated, navigate, user?.role]);
 
   const fetchProfile = async () => {
@@ -61,32 +134,96 @@ const Profile = () => {
   };
 
   const fetchSubscriptionData = async () => {
+    setSubscriptionLoading(true);
+    setError(null); // Clear any previous errors
+    
     try {
-      // Use the enhanced checkSubscription from AuthContext
-      await checkSubscription();
+      console.log('Fetching subscription data...');
+      
+      // Use the enhanced checkSubscription from AuthContext with a timeout
+      const checkSubscriptionPromise = checkSubscription();
+      
+      // Set a timeout to handle slow responses
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Subscription check timed out')), 10000);
+      });
+      
+      // Race the subscription check against the timeout
+      await Promise.race([checkSubscriptionPromise, timeoutPromise]);
+      
+      console.log('Subscription data retrieved:', user);
       
       // Get access codes if user has a subscription
-      if (user.hasSubscription) {
-        const codesResult = await getUserAccessCodes();
-        if (codesResult.success) {
-          setAccessCodes(codesResult.codes);
+      if (user?.hasSubscription) {
+        console.log('User has subscription, fetching access codes');
+        try {
+          const codesResult = await getUserAccessCodes();
+          if (codesResult && codesResult.success && Array.isArray(codesResult.codes)) {
+            setAccessCodes(codesResult.codes);
+            console.log('Access codes loaded:', codesResult.codes.length);
+          } else {
+            console.log('No valid codes data received', codesResult);
+            setAccessCodes([]);
+          }
+        } catch (codeErr) {
+          console.error('Error fetching access codes:', codeErr);
+          setAccessCodes([]);
         }
+      } else {
+        console.log('User has no active subscription');
+        setAccessCodes([]);
       }
       
-      // Set subscription data from user context
-      setSubscriptionData({
-        plan_name: user.subscriptionPlan?.name || 'No active plan',
-        status: user.subscriptionStatus || 'inactive',
-        is_active: user.hasSubscription && user.subscriptionStatus === 'active',
-        expiry_date: user.subscriptionExpiry,
-        end_date: user.subscriptionExpiry,
-        max_access_codes: user.maxAllowedCodes || 0,
-        remaining_codes: user.remainingCodes || 0,
-        plan_price: user.subscriptionPlan?.price || 0,
-        plan_duration: user.subscriptionPlan?.duration_months || 0
-      });
+      // Set subscription data from user context with fallbacks
+      if (user) {
+        const subscriptionInfo = {
+          plan_name: user.subscriptionPlan?.name || 'No active plan',
+          status: user.subscriptionStatus || 'inactive',
+          is_active: user.hasSubscription === true && user.subscriptionStatus === 'active',
+          expiry_date: user.subscriptionExpiry,
+          end_date: user.subscriptionExpiry,
+          max_access_codes: user.maxAllowedCodes || 0,
+          remaining_codes: user.remainingCodes || 0,
+          plan_price: user.subscriptionPlan?.price || 0,
+          plan_duration: user.subscriptionPlan?.duration_months || 0,
+          active_user_count: user.activeUserCount || 0
+        };
+        
+        console.log('Setting subscription data:', subscriptionInfo);
+        setSubscriptionData(subscriptionInfo);
+        
+        // Store subscription data in localStorage as a backup
+        localStorage.setItem('vortextv_subscription', JSON.stringify(subscriptionInfo));
+      } else {
+        console.error('User object is undefined after subscription check');
+        
+        // Try to load from localStorage if available
+        const savedData = localStorage.getItem('vortextv_subscription');
+        if (savedData) {
+          try {
+            setSubscriptionData(JSON.parse(savedData));
+            console.log('Loaded subscription data from localStorage');
+          } catch (e) {
+            console.error('Failed to parse saved subscription data', e);
+          }
+        }
+      }
     } catch (err) {
       console.error('Error fetching subscription data:', err);
+      setError('Failed to load subscription data. Please try again.');
+      
+      // Try to load from localStorage if available
+      const savedData = localStorage.getItem('vortextv_subscription');
+      if (savedData) {
+        try {
+          setSubscriptionData(JSON.parse(savedData));
+          console.log('Loaded backup subscription data from localStorage');
+        } catch (e) {
+          console.error('Failed to parse saved subscription data', e);
+        }
+      }
+    } finally {
+      setSubscriptionLoading(false);
     }
   };
 
@@ -116,30 +253,162 @@ const Profile = () => {
       [name]: value
     }));
   };
-
+  
   const handleGenerateAccessCode = async () => {
+    setError(null); // Clear any previous errors
+    setSuccessMessage(null); // Clear any previous success messages
+    setIsRedeemingCode(true);
+    setNewAccessCode(null); // Clear any previously generated code
+    
+    // Create a button indicator reference to track the button's state
+    const buttonIndicator = document.getElementById('generate-code-button');
+    if (buttonIndicator) {
+      buttonIndicator.textContent = 'Generating...'; 
+      buttonIndicator.disabled = true;
+    }
+    
     try {
-      setIsRedeemingCode(true);
-      // Use the enhanced generateAccessCode from AuthContext
-      const result = await generateAccessCode();
-      
-      if (result.success) {
-        setNewAccessCode(result.code);
-        setSuccessMessage(`Access code generated! You have ${result.remainingCodes} codes remaining.`);
-        // Refresh subscription data
-        fetchSubscriptionData();
-      } else {
-        setError(result.error || 'Failed to generate access code');
+      // Check if subscription data is loaded
+      if (!subscriptionData) {
+        console.log('No subscription data found, attempting to fetch it first');
+        await fetchSubscriptionData();
+        
+        // If still no subscription data, show error
+        if (!subscriptionData) {
+          throw new Error('Unable to verify subscription status. Please refresh the page and try again.');
+        }
       }
       
-      setIsRedeemingCode(false);
+      // Verify subscription is active before proceeding
+      if (!subscriptionData.is_active) {
+        throw new Error('You need an active subscription to generate access codes.');
+      }
+
+      console.log('Subscription data for access code check:', subscriptionData);
+      
+      // Extract max access codes and remaining counts with fallbacks
+      const maxAllowedCodes = subscriptionData.max_access_codes || user?.maxAllowedCodes || 0;
+      const generatedCodes = subscriptionData.generatedCodes || accessCodes?.length || 0;
+      const remainingCodes = subscriptionData.remaining_codes ?? (maxAllowedCodes - generatedCodes);
+      
+      console.log(`Access code limits - Max: ${maxAllowedCodes}, Generated: ${generatedCodes}, Remaining: ${remainingCodes}`);
+      
+      if (remainingCodes <= 0) {
+        throw new Error(`You've reached the maximum number of access codes (${maxAllowedCodes}) for your subscription plan.`);
+      }
+      
+      // Log browser network status for debugging
+      console.log('Browser network status:', navigator.onLine ? 'Online' : 'Offline');
+      console.log('Profile: Attempting to generate access code...');
+      
+      // Fetch the token for authentication
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+      
+      // Make direct API call with fetch to avoid any issues with axios or other libraries
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      try {
+        // Make the API call
+        const response = await fetch('http://localhost:5000/api/access/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        // Check if the response was successful
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('API error:', errorText);
+          throw new Error(`API error: ${response.status} ${response.statusText}`);
+        }
+        
+        // Parse the response data
+        const data = await response.json();
+        console.log('Access code generation response:', data);
+        
+        // Check if the operation was successful
+        if (!data || !data.success) {
+          throw new Error(data?.error || 'The server returned an unsuccessful response');
+        }
+        
+        // If we get here, code generation was successful
+        const newCode = data.code;
+        const codeId = data.code_id;
+        const remainingCodes = data.remainingCodes;
+        const expiryDate = data.expiryDate;
+        
+        setNewAccessCode(newCode);
+        setSuccessMessage(`Access code generated! You have ${remainingCodes} codes remaining.`);
+        
+        // Focus on the new code notification
+        setTimeout(() => {
+          if (newCodeRef.current) {
+            newCodeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            newCodeRef.current.focus();
+          }
+        }, 100);
+        
+        // Add the new code to the access codes list
+        if (codeId) {
+          const newCodeObject = {
+            code_id: codeId,
+            formatted_code: newCode,
+            code: newCode?.replace(/-/g, '') || '',
+            created_at: new Date().toISOString(),
+            expires_at: expiryDate,
+            is_active: true,
+            used_by: null,
+            status: 'Available'
+          };
+          
+          setAccessCodes(prevCodes => [newCodeObject, ...prevCodes]);
+        }
+        
+        // Update local subscription data
+        setSubscriptionData(prev => ({
+          ...prev,
+          remaining_codes: remainingCodes || Math.max(0, (prev.remaining_codes || 0) - 1)
+        }));
+        
+        // Update localStorage backup
+        const updatedSubscription = {
+          ...subscriptionData,
+          remaining_codes: remainingCodes || Math.max(0, (subscriptionData.remaining_codes || 0) - 1)
+        };
+        localStorage.setItem('vortextv_subscription', JSON.stringify(updatedSubscription));
+        
+      } catch (fetchError) {
+        // Handle fetch-specific errors
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Request timed out. The server took too long to respond.');
+        }
+        throw fetchError; // Re-throw to be caught by the outer try-catch
+      }
+      
     } catch (err) {
-      setError('Failed to generate access code. Please try again.');
-      console.error('Error generating access code:', err);
+      console.error('Error in handleGenerateAccessCode:', err);
+      const errorMessage = err.message || 'Failed to generate access code. Please check your network connection and try again.';
+      // Use the new function that focuses on error
+      setErrorWithFocus(errorMessage);
+    } finally {
+      // Reset button state
+      if (buttonIndicator) {
+        buttonIndicator.textContent = 'Generate Code';
+        buttonIndicator.disabled = false;
+      }
       setIsRedeemingCode(false);
     }
   };
-
+  
   const handleRedeemAccessCode = async (e) => {
     e.preventDefault();
     if (!accessCodeInput.trim()) {
@@ -174,16 +443,33 @@ const Profile = () => {
     }
   };
 
+  const usedCodes = Array.isArray(accessCodes)
+  ? accessCodes.filter(c => c.used_by)
+  : [];
+
+const uniqueUserCount = new Set(usedCodes.map(c => c.used_by)).size;
+
+
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text)
       .then(() => {
         setSuccessMessage('Code copied to clipboard!');
+        
+        // Focus on the success message
+        setTimeout(() => {
+          if (successRef.current) {
+            successRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            successRef.current.focus();
+          }
+        }, 100);
+        
         setTimeout(() => {
           setSuccessMessage(null);
         }, 3000);
       })
       .catch(err => {
         console.error('Failed to copy: ', err);
+        setErrorWithFocus('Failed to copy code to clipboard');
       });
   };
 
@@ -289,8 +575,8 @@ const Profile = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4 max-w-4xl">
-        <div className="flex justify-between items-center mb-8">
+      <div className="container mx-auto px-4 sm:px-6 max-w-4xl">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-8">
           <h1 className="text-3xl font-bold text-gray-800">My Profile</h1>
           <button
             onClick={() => navigate('/browse')}
@@ -304,7 +590,11 @@ const Profile = () => {
         </div>
         
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-start">
+          <div 
+            ref={errorRef} 
+            className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 flex items-start"
+            tabIndex={-1} // Make it focusable
+          >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
@@ -321,7 +611,11 @@ const Profile = () => {
         )}
         
         {successMessage && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-start">
+          <div 
+            ref={successRef} 
+            className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-start"
+            tabIndex={-1} // Make it focusable
+          >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
@@ -330,8 +624,12 @@ const Profile = () => {
         )}
         
         {newAccessCode && (
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-indigo-200 text-indigo-700 px-6 py-5 rounded-lg mb-6 shadow-sm">
-            <div className="flex flex-col md:flex-row md:items-center justify-between">
+          <div 
+            ref={newCodeRef} 
+            className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-indigo-200 text-indigo-700 px-4 sm:px-6 py-4 sm:py-5 rounded-lg mb-6 shadow-sm"
+            tabIndex={-1} // Make it focusable
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between">
               <div>
                 <p className="font-semibold text-lg mb-2">Access code generated successfully!</p>
                 <p className="mb-2">Share this code with a friend:</p>
@@ -353,7 +651,7 @@ const Profile = () => {
               </div>
               <button 
                 onClick={() => setNewAccessCode(null)}
-                className="mt-4 md:mt-0 text-indigo-700 hover:text-indigo-900 underline font-medium"
+                className="mt-4 sm:mt-0 text-indigo-700 hover:text-indigo-900 underline font-medium"
               >
                 Dismiss
               </button>
@@ -361,11 +659,11 @@ const Profile = () => {
           </div>
         )}
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left column - Account Info */}
-          <div className="md:col-span-2">
-            <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-6">
-              <div className="px-6 py-5 border-b border-gray-200 flex justify-between items-center">
+          <div className="lg:col-span-2">
+            <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-4 sm:mb-6">
+              <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-gray-200 flex flex-wrap justify-between items-center">
                 <h2 className="text-xl font-semibold text-gray-800">Account Information</h2>
                 {!editMode && (
                   <button
@@ -377,7 +675,7 @@ const Profile = () => {
                 )}
               </div>
               
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 {editMode ? (
                   <form onSubmit={handleUpdateProfile}>
                     <div className="space-y-4">
@@ -409,7 +707,7 @@ const Profile = () => {
                         />
                       </div>
                       
-                      <div className="flex justify-end space-x-3 pt-2">
+                      <div className="flex flex-col sm:flex-row sm:justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-2">
                         <button
                           type="button"
                           onClick={() => setEditMode(false)}
@@ -428,7 +726,7 @@ const Profile = () => {
                   </form>
                 ) : (
                   <div className="space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
                       <div>
                         <h3 className="text-sm font-medium text-gray-500">Username</h3>
                         <p className="mt-1 font-medium text-gray-900">{profile?.username}</p>
@@ -483,7 +781,7 @@ const Profile = () => {
             </div>
           
             {/* Subscription Information */}
-            <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-6">
+            <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-4 sm:mb-6">
               <div className="bg-gradient-to-r from-gray-800 to-gray-900 px-6 py-5 text-white">
                 <h2 className="text-xl font-semibold flex items-center">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -493,12 +791,21 @@ const Profile = () => {
                 </h2>
               </div>
               
-              <div className="p-6">
-                {subscriptionData?.is_active ? (
+              
+              <div className="p-4 sm:p-6">  
+              {subscriptionLoading ? (
+    <div className="text-center py-12">
+      <svg className="animate-spin h-8 w-8 text-gray-600 mx-auto mb-4" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+      </svg>
+      <p className="text-gray-600">Checking your subscription…</p>
+    </div> 
+               ): subscriptionData?.is_active ? (
                   <div className="space-y-6">
                     {/* Plan Header with Card-like Design */}
-                    <div className="bg-gradient-to-r from-red-50 to-red-100 rounded-xl p-6 border border-red-200 shadow-sm">
-                      <div className="flex flex-col md:flex-row md:justify-between md:items-center">
+                    <div className="bg-gradient-to-r from-red-50 to-red-100 rounded-xl p-4 sm:p-6 border border-red-200 shadow-sm">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
                         <div>
                           <div className="flex items-center">
                             <span className="inline-flex items-center justify-center bg-red-600 h-8 w-8 rounded-full mr-3">
@@ -545,12 +852,12 @@ const Profile = () => {
                     <div>
                       <h3 className="text-lg font-medium text-gray-800 mb-4 flex items-center">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-red-600" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                         Subscription Benefits
                       </h3>
                       
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                         <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4 text-center border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
                           <div className="bg-red-100 h-12 w-12 rounded-full flex items-center justify-center mx-auto mb-3">
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -580,7 +887,7 @@ const Profile = () => {
                             </svg>
                           </div>
                           <p className="font-medium text-gray-700 mb-1">Active Users</p>
-                          <p className="text-3xl font-bold text-gray-900">{accessCodes && accessCodes.length > 0 ? accessCodes.filter(code => code.is_active && code.used_by).length : 0}</p>
+                          <p className="text-3xl font-bold text-gray-900">{uniqueUserCount} </p>
                           <p className="text-xs text-gray-600 mt-1">using your codes</p>
                         </div>
                       </div>
@@ -615,7 +922,7 @@ const Profile = () => {
                         {showGenCodeConfirm ? (
                           <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-100 text-center">
                             <p className="mb-3 text-indigo-800">Generate a new access code to share with a friend?</p>
-                            <div className="flex space-x-3 justify-center">
+                            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 justify-center">
                               <button
                                 onClick={() => setShowGenCodeConfirm(false)}
                                 className="bg-white text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors border border-gray-300"
@@ -624,9 +931,21 @@ const Profile = () => {
                                 Cancel
                               </button>
                               <button
-                                onClick={() => {
-                                  handleGenerateAccessCode();
-                                  setShowGenCodeConfirm(false);
+                                id="generate-code-button"
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation(); // Stop event bubbling
+                                  
+                                  // Use setTimeout to ensure this runs outside the current event loop
+                                  setTimeout(() => {
+                                    console.log('Generate button clicked, calling handleGenerateAccessCode');
+                                    handleGenerateAccessCode();
+                                    setShowGenCodeConfirm(false);
+                                  }, 0);
+                                  
+                                  // Return false to prevent default for older browsers
+                                  return false;
                                 }}
                                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors flex items-center"
                                 disabled={isRedeemingCode}
@@ -803,12 +1122,12 @@ const Profile = () => {
           <div className="md:col-span-1">
             {/* Redeemed Access Code Information (for shared users) */}
             {user.hasAccessCode && !user.hasSubscription && user.accessCodeDetails && (
-              <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-6">
+              <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-4 sm:mb-6">
                 <div className="px-6 py-5 border-b border-gray-200 bg-indigo-50">
                   <h2 className="text-xl font-semibold text-indigo-800">Shared Access</h2>
                 </div>
                 
-                <div className="p-6">
+                <div className="p-4 sm:p-6">
                   <div className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-lg p-4 mb-4 border border-indigo-100">
                     <div className="flex items-center mb-2">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-600 mr-2" viewBox="0 0 20 20" fill="currentColor">
@@ -872,7 +1191,7 @@ const Profile = () => {
             
             {/* Active Access Codes Panel */}
             {accessCodes && accessCodes.length > 0 && (
-              <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-6">
+              <div className="bg-white shadow-sm rounded-lg overflow-hidden mb-4 sm:mb-6">
                 <div className="px-6 py-5 border-b border-gray-200">
                   <h2 className="text-xl font-semibold text-gray-800">Your Access Codes</h2>
                 </div>
@@ -931,7 +1250,7 @@ const Profile = () => {
                 <h2 className="text-xl font-semibold text-gray-800">Account Actions</h2>
               </div>
               
-              <div className="p-6">
+              <div className="p-4 sm:p-6">
                 <div className="space-y-3">
                   {showPasswordForm ? (
                     <div className="bg-white p-4 rounded-lg border border-gray-200 mb-4">
@@ -984,7 +1303,7 @@ const Profile = () => {
                           />
                         </div>
                         
-                        <div className="flex justify-end space-x-3 pt-2">
+                        <div className="flex flex-col sm:flex-row sm:justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-2">
                           <button
                             type="button"
                             onClick={() => setShowPasswordForm(false)}

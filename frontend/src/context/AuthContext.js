@@ -77,14 +77,56 @@ export const AuthProvider = ({ children }) => {
       // Ensure token is set in headers
       setupTokenRefresh();
       
+      // First check if we have cached subscription data
+      let cachedSubscriptionData = null;
+      try {
+        const cachedData = localStorage.getItem('vortextv_subscription_data');
+        if (cachedData) {
+          cachedSubscriptionData = JSON.parse(cachedData);
+          console.log("Found cached subscription data:", cachedSubscriptionData);
+        }
+      } catch (cacheError) {
+        console.error("Error reading cached subscription data:", cacheError);
+      }
+      
       try {
         // Get current user data
         console.log("Fetching current user data");
         const response = await getCurrentUser();
         console.log("User data retrieved successfully", response.data);
         
-        setUser(response.data);
+        // Merge subscription data from cache into user object if available
+        let userData = response.data;
+        if (cachedSubscriptionData) {
+          userData = {
+            ...userData,
+            hasSubscription: cachedSubscriptionData.hasSubscription,
+            hasAccessCode: cachedSubscriptionData.hasAccessCode,
+            subscription: cachedSubscriptionData.subscription,
+            subscriptionPlan: cachedSubscriptionData.subscriptionPlan,
+            subscriptionStatus: cachedSubscriptionData.status,
+            subscriptionExpiry: cachedSubscriptionData.expiryDate,
+            generatedCodes: cachedSubscriptionData.generatedCodes || 0,
+            maxAllowedCodes: cachedSubscriptionData.maxAllowedCodes || 0,
+            remainingCodes: cachedSubscriptionData.remainingCodes || 0,
+            accessCodeDetails: cachedSubscriptionData.accessCodeDetails
+          };
+          console.log("Merged cached subscription data with user data");
+        }
+        
+        setUser(userData);
         setIsAuthenticated(true);
+        
+        // Immediately after auth is established, trigger a subscription check in background
+        // This will update the cached data with fresh data from the server
+        setTimeout(() => {
+          console.log("Performing background subscription check after login");
+          checkSubscription().then(() => {
+            console.log("Background subscription check completed");
+          }).catch(err => {
+            console.error("Background subscription check failed:", err);
+          });
+        }, 200);
       } catch (error) {
         console.error('Error fetching user data:', error);
         
@@ -97,8 +139,28 @@ export const AuthProvider = ({ children }) => {
           };
           console.log("Using token data as fallback:", tokenData);
           
+          // Merge with cached subscription data if available
+          if (cachedSubscriptionData) {
+            Object.assign(tokenData, {
+              hasSubscription: cachedSubscriptionData.hasSubscription,
+              hasAccessCode: cachedSubscriptionData.hasAccessCode,
+              subscription: cachedSubscriptionData.subscription,
+              subscriptionPlan: cachedSubscriptionData.subscriptionPlan,
+              subscriptionStatus: cachedSubscriptionData.status,
+              subscriptionExpiry: cachedSubscriptionData.expiryDate,
+              generatedCodes: cachedSubscriptionData.generatedCodes || 0,
+              maxAllowedCodes: cachedSubscriptionData.maxAllowedCodes || 0,
+              remainingCodes: cachedSubscriptionData.remainingCodes || 0,
+              accessCodeDetails: cachedSubscriptionData.accessCodeDetails
+            });
+            console.log("Merged cached subscription data with token data");
+          }
+          
           setUser(tokenData);
           setIsAuthenticated(true);
+          
+          // Try to get fresh subscription data
+          setTimeout(() => checkSubscription(), 300);
         } catch (tokenError) {
           console.error('Failed to extract user data from token:', tokenError);
           clearAuthToken();
@@ -270,67 +332,177 @@ export const AuthProvider = ({ children }) => {
 
   // Check if user has active subscription
   const checkSubscription = async () => {
-    if (!isAuthenticated) return false;
-    
-    try {
-      const response = await checkSubscriptionApi();
-      
-      // Update user data with subscription info
-      setUser(prevUser => ({
-        ...prevUser,
-        hasSubscription: response.data.hasSubscription,
-        hasAccessCode: response.data.hasAccessCode,
-        subscription: response.data.subscription,
-        // Add more detailed subscription data
-        subscriptionPlan: response.data.subscriptionPlan,
-        subscriptionStatus: response.data.status,
-        subscriptionExpiry: response.data.expiryDate,
-        generatedCodes: response.data.generatedCodes || 0,
-        maxAllowedCodes: response.data.maxAllowedCodes || 0,
-        remainingCodes: response.data.remainingCodes || 0,
-        accessCodeDetails: response.data.accessCodeDetails
-      }));
-      
-      // Check if subscription is active (not expired)
-      const isActive = response.data.hasSubscription && 
-                       response.data.status === 'active' && 
-                       new Date(response.data.expiryDate) > new Date();
-      
-      // Or check if access code is valid
-      const hasValidCode = response.data.hasAccessCode &&
-                           response.data.accessCodeDetails &&
-                           new Date(response.data.accessCodeDetails.expiryDate) > new Date();
-      
-      return isActive || hasValidCode;
-    } catch (error) {
-      console.error('Error checking subscription:', error);
+    if (!isAuthenticated) {
+      console.log('Not authenticated, cannot check subscription');
       return false;
     }
+    
+    // Add a retry mechanism for reliability
+    let retries = 2;
+    let success = false;
+    let finalResponse = null;
+    
+    while (retries >= 0 && !success) {
+      try {
+        console.log(`Checking subscription (${2-retries}/2 attempt)`);
+        const response = await checkSubscriptionApi();
+        success = true;
+        finalResponse = response;
+        console.log('Subscription check successful:', response.data);
+      } catch (error) {
+        console.error(`Attempt ${2-retries}/2 failed:`, error);
+        retries--;
+        if (retries >= 0) {
+          // Wait before retrying (500ms, then 1000ms)
+          await new Promise(resolve => setTimeout(resolve, 500 * (3 - retries)));
+        }
+      }
+    }
+    
+    if (!success || !finalResponse) {
+      console.error('All subscription check attempts failed');
+      
+      // Try to use cached data if available
+      const cachedSubscription = localStorage.getItem('vortextv_subscription_data');
+      if (cachedSubscription) {
+        try {
+          const parsedData = JSON.parse(cachedSubscription);
+          console.log('Using cached subscription data:', parsedData);
+          
+          // Update user with cached data
+          setUser(prevUser => ({
+            ...prevUser,
+            hasSubscription: parsedData.hasSubscription,
+            hasAccessCode: parsedData.hasAccessCode,
+            subscription: parsedData.subscription,
+            subscriptionPlan: parsedData.subscriptionPlan,
+            subscriptionStatus: parsedData.status,
+            subscriptionExpiry: parsedData.expiryDate,
+            generatedCodes: parsedData.generatedCodes || 0,
+            maxAllowedCodes: parsedData.maxAllowedCodes || 0,
+            remainingCodes: parsedData.remainingCodes || 0,
+            accessCodeDetails: parsedData.accessCodeDetails
+          }));
+          
+          return parsedData.hasSubscription && parsedData.status === 'active';
+        } catch (e) {
+          console.error('Error parsing cached subscription data:', e);
+        }
+      }
+      
+      return false;
+    }
+    
+    const data = finalResponse.data;
+    
+    // Cache the subscription data for later use if needed
+    localStorage.setItem('vortextv_subscription_data', JSON.stringify(data));
+    
+    // Update user data with subscription info
+    setUser(prevUser => ({
+      ...prevUser,
+      hasSubscription: data.hasSubscription,
+      hasAccessCode: data.hasAccessCode,
+      subscription: data.subscription,
+      // Add more detailed subscription data
+      subscriptionPlan: data.subscriptionPlan,
+      subscriptionStatus: data.status,
+      subscriptionExpiry: data.expiryDate,
+      generatedCodes: data.generatedCodes || 0,
+      maxAllowedCodes: data.maxAllowedCodes || 0,
+      remainingCodes: data.remainingCodes || 0,
+      accessCodeDetails: data.accessCodeDetails
+    }));
+    
+    // Check if subscription is active (not expired)
+    const isActive = data.hasSubscription && 
+                    data.status === 'active' && 
+                    new Date(data.expiryDate) > new Date();
+    
+    // Or check if access code is valid
+    const hasValidCode = data.hasAccessCode &&
+                        data.accessCodeDetails &&
+                        new Date(data.accessCodeDetails.expiryDate) > new Date();
+    
+    const result = isActive || hasValidCode;
+    console.log(`Subscription check result: ${result ? 'Active' : 'Inactive'}`);
+    return result;
   };
 
   // Generate an access code for the user's subscription
   const generateAccessCode = async () => {
     setIsLoading(true);
+    console.log('AuthContext: Starting access code generation');
+    
+    // Make sure subscription data is up-to-date before generating
     try {
       if (!isAuthenticated) {
+        console.error('AuthContext: Cannot generate code - not authenticated');
         setError('Authentication required');
-        return null;
+        return {
+          success: false,
+          error: 'Authentication required'
+        };
       }
 
+      // Check subscription status directly from user object
+      if (!user) {
+        console.error('AuthContext: Cannot generate code - no user data');
+        setError('User data unavailable');
+        return {
+          success: false,
+          error: 'User data unavailable'
+        };
+      }
+      
+      if (!user.hasSubscription) {
+        console.error('AuthContext: Cannot generate code - no active subscription');
+        setError('No active subscription found');
+        return {
+          success: false,
+          error: 'No active subscription found'
+        };
+      }
+
+      // Debug the request before sending
+      console.log('AuthContext: Making API call to generate access code');
+      
+      // Make the API request with specific headers and timeout
       const response = await generateAccessCodeApi();
+      console.log('AuthContext: Access code API response:', response.data);
 
       if (response.data && response.data.success) {
-        setSuccess(`Access code generated: ${response.data.code}`);
+        const successMsg = `Access code generated: ${response.data.code}`;
+        console.log('AuthContext: ' + successMsg);
+        setSuccess(successMsg);
+        
+        // Update subscription data in user context
+        setUser(prevUser => ({
+          ...prevUser,
+          remainingCodes: response.data.remainingCodes,
+          generatedCodes: response.data.generatedCodes
+        }));
+        
         // Return the generated code data
         return response.data;
       } else {
-        setError(response.data.error || 'Failed to generate access code');
-        return null;
+        const errorMsg = response.data?.error || 'Failed to generate access code';
+        console.error('AuthContext: Access code generation failed:', errorMsg);
+        setError(errorMsg);
+        return {
+          success: false,
+          error: errorMsg
+        };
       }
     } catch (err) {
-      console.error('Error generating access code:', err);
-      setError(err.response?.data?.error || 'Failed to generate access code');
-      return null;
+      console.error('AuthContext: Error generating access code:', err);
+      const errorMsg = err.response?.data?.error || err.message || 'Failed to generate access code';
+      setError(errorMsg);
+      return {
+        success: false,
+        error: errorMsg,
+        details: err.toString()
+      };
     } finally {
       setIsLoading(false);
     }
@@ -367,16 +539,40 @@ export const AuthProvider = ({ children }) => {
 
   // Get all user generated access codes
   const getUserAccessCodes = async () => {
-    if (!isAuthenticated || !user.hasSubscription) {
-      return { success: false, codes: [] };
+    // Guard clause - check if authenticated and has subscription
+    if (!isAuthenticated) {
+      console.log('Not authenticated, cannot get access codes');
+      return { success: false, codes: [], error: 'Authentication required' };
+    }
+    
+    if (!user || !user.hasSubscription) {
+      console.log('User has no subscription, cannot get access codes');
+      return { success: false, codes: [], error: 'No active subscription' };
     }
     
     try {
+      console.log('Fetching access codes from API');
       const response = await getAccessCodesApi();
-      return { success: true, codes: response.data.codes };
+      
+      // Validate the response structure
+      if (response && response.data) {
+        // Check if codes array exists, if not default to empty array
+        const codes = Array.isArray(response.data.codes) ? response.data.codes : 
+                     (Array.isArray(response.data) ? response.data : []);
+        
+        console.log(`Retrieved ${codes.length} access codes`);
+        return { success: true, codes: codes };
+      } else {
+        console.error('Invalid response format from access codes API');
+        return { success: false, codes: [], error: 'Invalid response format' };
+      }
     } catch (error) {
       console.error('Error fetching access codes:', error);
-      return { success: false, codes: [] };
+      return { 
+        success: false, 
+        codes: [], 
+        error: error.response?.data?.message || error.message || 'Error fetching access codes'
+      };
     }
   };
 

@@ -184,7 +184,19 @@ def get_user_subscription():
                 if user:
                     code['used_by_username'] = user['username']
         
-        subscription['access_codes'] = access_codes
+            subscription['access_codes']      = access_codes
+ 
+     # ── New: count how many codes have been used (active users) ──
+            active_users_result = Database.get_single_result(
+                """
+                SELECT COUNT(*) AS count
+                FROM access_codes
+                WHERE subscription_id = %s
+                AND used_by IS NOT NULL
+                """,
+                (subscription['subscription_id'],)
+            )
+            subscription['active_user_count'] = active_users_result['count'] if active_users_result else 0
         
         return jsonify(subscription), 200
         
@@ -344,26 +356,60 @@ def get_all_subscriptions():
         # Get query parameters for pagination
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 10, type=int)
+        status = request.args.get('status')  # active, inactive/expired, all
+        search = request.args.get('search')
+        
         offset = (page - 1) * per_page
         
-        # Get subscriptions with pagination
-        subscriptions = Database.execute_query(
-            """
+        # Build query based on filters
+        query = """
             SELECT s.subscription_id, s.user_id, u.username, u.email,
                   p.plan_name, s.start_date, s.end_date, s.is_active, s.payment_status
             FROM subscriptions s
             JOIN users u ON s.user_id = u.user_id
             JOIN subscription_plans p ON s.plan_id = p.plan_id
-            ORDER BY s.start_date DESC
-            LIMIT %s OFFSET %s
-            """,
-            (per_page, offset)
-        )
+            WHERE 1=1
+        """
+        params = []
         
-        # Get total subscription count
-        count = Database.get_single_result(
-            "SELECT COUNT(*) as count FROM subscriptions"
-        )
+        if status == 'active':
+            query += " AND s.is_active = TRUE AND s.end_date > NOW()"
+        elif status == 'expired' or status == 'inactive':
+            query += " AND (s.is_active = FALSE OR s.end_date <= NOW())"
+        
+        if search:
+            query += " AND (u.username LIKE %s OR u.email LIKE %s)"
+            params.append(f"%{search}%")
+            params.append(f"%{search}%")
+        
+        # Add ordering and pagination
+        query += " ORDER BY s.start_date DESC LIMIT %s OFFSET %s"
+        params.extend([per_page, offset])
+        
+        # Execute query
+        subscriptions = Database.execute_query(query, tuple(params) if params else None)
+        
+        # Get total count for pagination
+        count_query = """
+            SELECT COUNT(*) as count
+            FROM subscriptions s
+            JOIN users u ON s.user_id = u.user_id
+            JOIN subscription_plans p ON s.plan_id = p.plan_id
+            WHERE 1=1
+        """
+        count_params = []
+        
+        if status == 'active':
+            count_query += " AND s.is_active = TRUE AND s.end_date > NOW()"
+        elif status == 'expired' or status == 'inactive':
+            count_query += " AND (s.is_active = FALSE OR s.end_date <= NOW())"
+        
+        if search:
+            count_query += " AND (u.username LIKE %s OR u.email LIKE %s)"
+            count_params.append(f"%{search}%")
+            count_params.append(f"%{search}%")
+        
+        count = Database.get_single_result(count_query, tuple(count_params) if count_params else None)
         
         return jsonify({
             'subscriptions': subscriptions,

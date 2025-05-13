@@ -17,9 +17,11 @@ access_codes_bp = Blueprint('access_codes', __name__)
 def generate_access_code():
     """Generate a new access code for the current user's subscription"""
     user_id = request.user['user_id']
+    logger.info(f"Access code generation request received for user_id: {user_id}")
     
     try:
         # Check if user has active subscription
+        logger.info(f"Checking subscription for user_id: {user_id}")
         subscription = Database.get_single_result(
             """
             SELECT s.subscription_id, s.end_date, p.max_access_codes, p.plan_name
@@ -30,10 +32,12 @@ def generate_access_code():
             (user_id,)
         )
         
+        logger.info(f"Subscription check result: {subscription}")
         if not subscription:
             return jsonify({'success': False, 'error': 'No active subscription found'}), 403
         
         # Check if user has reached the max number of access codes
+        logger.info(f"Checking access code count for user_id: {user_id}, subscription_id: {subscription['subscription_id']}")
         codes_count = Database.get_single_result(
             """
             SELECT COUNT(*) as count
@@ -43,6 +47,7 @@ def generate_access_code():
             (user_id, subscription['subscription_id'])
         )
         
+        logger.info(f"Current access codes count: {codes_count}")
         if codes_count and codes_count['count'] >= subscription['max_access_codes']:
             return jsonify({
                 'success': False,
@@ -52,25 +57,37 @@ def generate_access_code():
             }), 403
         
         # Generate a formatted access code
+        logger.info(f"Generating access code for user_id: {user_id}")
         access_code = AccessCodeGenerator.generate_formatted_code()
+        logger.info(f"Generated access code: {access_code}")
         
         # Insert access code into database
-        code_id = Database.execute_query(
+        logger.info(f"Inserting access code into database")
+        # Use two separate queries for MySQL - first insert, then get the last inserted ID
+        Database.execute_query(
             """
             INSERT INTO access_codes (code, created_by, subscription_id, expires_at, is_active)
             VALUES (%s, %s, %s, %s, TRUE)
-            RETURNING code_id
             """,
             (
                 access_code.replace('-', ''),  # Store without separators
                 user_id,
                 subscription['subscription_id'],
                 subscription['end_date']
-            )
+            ),
+            fetch=False  # Don't fetch results for INSERT
         )
         
-        if code_id and len(code_id) > 0:
-            code_id = code_id[0]['code_id']
+        # Now get the last inserted ID
+        code_id_result = Database.execute_query(
+            "SELECT LAST_INSERT_ID() as code_id", 
+            ()
+        )
+        logger.info(f"Database insert result - last insert ID: {code_id_result}")
+        
+        code_id = None
+        if code_id_result and len(code_id_result) > 0:
+            code_id = code_id_result[0]['code_id']
         
         # Log audit
         Database.execute_query(
@@ -91,7 +108,7 @@ def generate_access_code():
         current_count = codes_count['count'] + 1 if codes_count else 1
         remaining_codes = max(0, subscription['max_access_codes'] - current_count)
         
-        return jsonify({
+        response_data = {
             'success': True,
             'message': 'Access code generated successfully',
             'code': access_code,
@@ -101,11 +118,16 @@ def generate_access_code():
             'remainingCodes': remaining_codes,
             'maxAllowedCodes': subscription['max_access_codes'],
             'generatedCodes': current_count
-        }), 201
+        }
+        
+        logger.info(f"Returning success response with access code: {access_code}, remaining: {remaining_codes}")
+        return jsonify(response_data), 201
         
     except Exception as e:
         logger.error(f"Error generating access code: {e}")
-        return jsonify({'success': False, 'error': 'Error generating access code'}), 500
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'success': False, 'error': f'Error generating access code: {str(e)}'}), 500
 
 @access_codes_bp.route('/redeem', methods=['POST'])
 @token_required

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import tmdbApi, { getImageUrl } from '../api/tmdbApi';
+import moviePlaceholder from '../assets/images/movie-placeholder';
 import { useAuth } from '../hooks/useAuth';
 import { getAllSubscriptionPlans } from '../api/backendApi';
 
@@ -239,7 +240,7 @@ const Home = () => {
                     className="w-full h-auto transition-transform duration-300 group-hover:scale-105"
                     onError={(e) => {
                       e.target.onerror = null;
-                      e.target.src = 'https://via.placeholder.com/300x450?text=' + encodeURIComponent(item.title);
+                      e.target.src = moviePlaceholder;
                     }}
                   />
                   <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-opacity flex items-center justify-center">
